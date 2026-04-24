@@ -3,11 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Echoing Dark v2.1</title>
-    <!-- 強制不快取設定 -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
+    <title>The Echoing Dark v2.2</title>
     <style>
         * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; outline: none; }
         body { margin: 0; background: #000; color: #fff; font-family: 'Courier New', monospace; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; touch-action: none; }
@@ -17,7 +13,7 @@
         canvas { display: block; background: #000; width: 350px; height: 350px; }
         #story-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 500; cursor: pointer; text-align: center; }
         #warning-overlay { position: absolute; inset: 0; background: rgba(200,0,0,0.4); display: none; justify-content: center; align-items: center; z-index: 400; font-size: 40px; color: #f00; font-weight: bold; animation: blink 0.3s infinite; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
         .shake { animation: shakeAnim 0.1s infinite; }
         @keyframes shakeAnim { 0% { transform: translate(3px, 3px); } 50% { transform: translate(-3px, -3px); } 100% { transform: translate(3px, -3px); } }
         #joystick-zone { width: 140px; height: 140px; background: rgba(255,255,255,0.05); border: 2px solid #333; border-radius: 50%; margin-top: 20px; position: relative; }
@@ -43,14 +39,13 @@
 </div>
 
 <div id="end-screen" style="display:none;">
-    <div id="end-msg" style="margin-bottom:30px; color: #f00; font-size: 20px;"></div>
+    <div id="end-msg" style="margin-bottom:30px; color: #f00; font-size: 22px; font-weight:bold;"></div>
     <button class="btn" onclick="location.reload()">RESTART</button>
 </div>
 
 <script>
-/** 核心對象與狀態 **/
 const WORLD_SIZE = 100, GRID_RES = 35;
-let map = [], player = {x:50, y:50, vx:0, vy:0}, greyDot = {x:0,y:0}, redDot = {x:0,y:0};
+let map = [], player = {x:50.5, y:50.5, vx:0, vy:0}, greyDot = {x:0,y:0}, redDot = {x:0,y:0};
 let enemies = [], gameState = 'FIND_GREY', difficulty = 'normal', isPaused = true, redFollowing = false, isGameOver = false;
 let audioCtx, mainGain, noteIndex = 0;
 const notes = [220.0, 233.1, 261.6, 311.1, 349.2, 415.3];
@@ -58,27 +53,33 @@ const notes = [220.0, 233.1, 261.6, 311.1, 349.2, 415.3];
 const canvas = document.getElementById('gameCanvas'), ctx = canvas.getContext('2d');
 const arrow = document.getElementById('arrow');
 
-/** 1. 強制初始化引擎 (核心修復) **/
+/** 1. 強化版音效播放器 **/
+function playSfx(freq, duration, vol = 0.5, type = 'square') {
+    if(!audioCtx || audioCtx.state === 'suspended') return;
+    const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    g.gain.setValueAtTime(vol, audioCtx.currentTime);
+    g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + duration);
+    osc.connect(g).connect(mainGain);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+
 function initEngine(mode) {
     difficulty = mode;
     document.getElementById('overlay').style.display = 'none';
-    
-    // 初始化音頻
     if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         mainGain = audioCtx.createGain(); mainGain.connect(audioCtx.destination);
         mainGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
         playStep();
-    }
-    
-    // 初始化地圖
+    } else { audioCtx.resume(); }
+
     map = [];
     for(let y=0; y<WORLD_SIZE; y++) {
         map[y] = [];
         for(let x=0; x<WORLD_SIZE; x++) map[y][x] = (x===0||y===0||x===99||y===99||Math.random()<0.28)?1:0;
     }
     
-    // 初始化點位
     player = {x:50.5, y:50.5, vx:0, vy:0};
     const clr = (cx,cy) => {
         let ix=Math.floor(cx), iy=Math.floor(cy);
@@ -93,7 +94,6 @@ function initEngine(mode) {
     update();
 }
 
-/** 2. 聲音節奏 **/
 function playStep() {
     if(isGameOver) return;
     let bpm = 1200;
@@ -114,10 +114,8 @@ function playStep() {
     setTimeout(playStep, bpm);
 }
 
-/** 3. 遊戲循環 **/
 function update() {
     if(isGameOver) return;
-
     if(!isPaused) {
         const base = 0.04, pSpd = redFollowing ? base*0.9 : base;
         let nX = player.x + player.vx*pSpd, nY = player.y + player.vy*pSpd;
@@ -140,27 +138,30 @@ function update() {
 
         if(td < 0.6) {
             if(gameState==='FIND_GREY') {
-                gameState='FIND_RED';
-                isPaused=true;
+                gameState='FIND_RED'; isPaused=true;
+                playSfx(150, 0.8, 0.7, 'sawtooth'); // 字幕出現音
                 const ov=document.getElementById('story-overlay');
                 document.getElementById('story-text').innerText="Bring Me the Red Dot";
                 ov.style.display='flex';
                 ov.onclick=()=>{ 
+                    playSfx(600, 0.2, 0.5, 'sine'); // 點擊音
                     ov.style.display='none'; 
                     do { redDot.x=10+Math.random()*80; redDot.y=10+Math.random()*80; } 
                     while(Math.sqrt((redDot.x-player.x)**2+(redDot.y-player.y)**2)<30||map[Math.floor(redDot.y)][Math.floor(redDot.x)]===1);
                     isPaused=false;
                 };
             } else if(gameState==='FIND_RED' && !redFollowing) {
-                gameState='RETURN_GREY'; redFollowing=true;
-                isPaused=true;
+                gameState='RETURN_GREY'; redFollowing=true; isPaused=true;
+                playSfx(100, 1.0, 0.8, 'sawtooth'); // 對白音效
                 const ov=document.getElementById('story-overlay');
                 document.getElementById('story-text').innerText="No…no…please no";
                 ov.style.display='flex';
                 ov.onclick=()=>{
+                    playSfx(800, 0.2, 0.5, 'sine'); // 點擊音
                     ov.style.display='none';
                     const gc=document.getElementById('game-container'), wo=document.getElementById('warning-overlay');
                     gc.classList.add('shake'); wo.style.display='flex';
+                    playSfx(60, 3.0, 0.9, 'sawtooth'); // WARNING音效
                     setTimeout(()=>{
                         gc.classList.remove('shake'); wo.style.display='none';
                         enemies=[];
@@ -171,11 +172,12 @@ function update() {
                         isPaused=false;
                     }, 3000);
                 };
-            } else if(gameState==='RETURN_GREY' && redFollowing) { location.reload(); }
+            } else if(gameState==='RETURN_GREY' && redFollowing) { 
+                endMe('Thank you. Hahaha…'); 
+            }
         }
     }
 
-    /** 繪製 **/
     ctx.fillStyle = (difficulty==='hard')?"#444":"#bbb"; ctx.fillRect(0,0,350,350);
     ctx.save(); ctx.translate(175-player.x*GRID_RES, 175-player.y*GRID_RES);
     ctx.fillStyle="#000";
@@ -194,13 +196,17 @@ function update() {
     enemies.forEach(e=>{ ctx.beginPath(); ctx.fillStyle=(difficulty==='hard')?`rgba(204,204,0,${0.4+Math.random()*0.6})`:"#cc0"; ctx.arc(e.x*GRID_RES, e.y*GRID_RES, 7, 0, 7); ctx.fill(); });
     ctx.fillStyle="#000"; ctx.beginPath(); ctx.arc(player.x*GRID_RES, player.y*GRID_RES, 10, 0, 7); ctx.fill();
     ctx.restore();
-    
     requestAnimationFrame(update);
 }
 
-function endMe(m) { isGameOver=true; document.getElementById('end-msg').innerText=m; document.getElementById('end-screen').style.display='flex'; }
+function endMe(m) { 
+    isGameOver = true; 
+    playSfx(50, 2.5, 0.9, 'sawtooth'); // 完結/死亡重低音
+    const ed = document.getElementById('end-screen');
+    document.getElementById('end-msg').innerText = m;
+    ed.style.display = 'flex'; 
+}
 
-/** 搖桿事件 (強制重寫座標抓取) **/
 const zone = document.getElementById('joystick-zone'), knob = document.getElementById('joystick-knob');
 const handleMove = (e) => {
     e.preventDefault(); if(isPaused || isGameOver) return;
